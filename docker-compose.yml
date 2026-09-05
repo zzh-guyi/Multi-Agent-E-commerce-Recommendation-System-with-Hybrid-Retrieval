@@ -1,0 +1,159 @@
+services:
+
+  # =========================
+  # Python API Server
+  # =========================
+  api:
+    build:
+      context: ./python
+      dockerfile: Dockerfile
+
+    ports:
+      - "8000:8000"
+
+    env_file:
+      - ./python/.env
+
+    environment:
+      ECOM_REDIS_URL: redis://redis:6379/0
+      ECOM_MILVUS_HOST: milvus
+      ECOM_MILVUS_PORT: 19530
+      ECOM_DATABASE_URL: mysql+pymysql://root:ecommerce123@mysql:3306/ecommerce?charset=utf8mb4
+
+    depends_on:
+      - redis
+      - mysql
+      - etcd
+      - minio
+      - milvus
+
+    restart: unless-stopped
+
+
+  # =========================
+  # Redis
+  # =========================
+  redis:
+    image: redis:7-alpine
+
+    ports:
+      - "6379:6379"
+
+    volumes:
+      - redis_data:/data
+
+    command: redis-server --appendonly yes
+
+    restart: unless-stopped
+
+
+  # =========================
+  # MySQL
+  # =========================
+  mysql:
+    image: mysql:8.0
+
+    ports:
+      - "3306:3306"
+
+    environment:
+      MYSQL_ROOT_PASSWORD: ecommerce123
+      MYSQL_DATABASE: ecommerce
+
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+    restart: unless-stopped
+
+
+  # =========================
+  # etcd
+  # Milvus 元数据存储
+  # =========================
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: 1000
+      ETCD_QUOTA_BACKEND_BYTES: 4294967296
+      ETCD_SNAPSHOT_COUNT: 50000
+
+    volumes:
+      - etcd_data:/etcd
+
+    command:
+      - etcd
+      - --advertise-client-urls=http://etcd:2379
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --data-dir=/etcd
+
+    restart: unless-stopped
+
+
+  # =========================
+  # MinIO
+  # Milvus 对象存储
+  # =========================
+  minio:
+    image: quay.io/minio/minio:latest
+
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+    volumes:
+      - minio_data:/minio_data
+
+    command:
+      - minio
+      - server
+      - /minio_data
+      - --console-address
+      - ":9001"
+
+    restart: unless-stopped
+
+
+  # =========================
+  # Milvus
+  # =========================
+  milvus:
+    image: milvusdb/milvus:v2.4.13
+
+    command:
+      - milvus
+      - run
+      - standalone
+
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+
+    volumes:
+      - milvus_data:/var/lib/milvus
+
+    depends_on:
+      - etcd
+      - minio
+
+    restart: unless-stopped
+
+
+# =========================
+# Persistent Volumes
+# =========================
+volumes:
+  redis_data:
+  mysql_data:
+  etcd_data:
+  minio_data:
+  milvus_data:
